@@ -24,6 +24,7 @@ html,body{margin:0;height:100%;background:#14161f;overflow:hidden;overscroll-beh
 #bAct{width:70px;height:70px;background:rgba(230,80,70,.6);font-size:13px;margin-bottom:26px}
 #bJump{width:88px;height:88px;background:rgba(60,170,90,.6);font-size:15px}
 #btns button.dn,#dpad.dn{filter:brightness(1.5)}
+body.gp #pad{display:none!important}
 body[data-state=title] #pad,body[data-state=win] #pad,body[data-state=gameover] #pad{display:none}
 #sa{position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
 body.portrait #pad{bottom:calc(18px + env(safe-area-inset-bottom))}
@@ -37,7 +38,7 @@ body.portrait #bSwap{position:absolute;right:2px;bottom:min(104px,28vw);width:54
 <body>
 <canvas id="c"></canvas>
 <div id="sa"></div>
-<div id="top"><button id="bMute" aria-label="Mute">♪</button><button id="bPause" aria-label="Pause">❚❚</button></div>
+<div id="top"><button id="bFull" aria-label="Full screen" style="display:none">⛶</button><button id="bMute" aria-label="Mute">♪</button><button id="bPause" aria-label="Pause">❚❚</button></div>
 <div id="pad"><div id="dpad"><span>◀</span><span>▶</span></div>
 <div id="btns"><button id="bSwap">SWAP</button><button id="bAct">ACT</button><button id="bJump">JUMP</button></div></div>
 <script>
@@ -189,9 +190,35 @@ function music(dt){musT-=dt;if(musT>0)return;musT=G.time<60?.12:.16;const i=musI
  if(MEL[i])tone(MEL[i],.13,'square',.018);if(BAS[i])tone(BAS[i],.22,'triangle',.06)}
 
 /* ---------- input ---------- */
+const gp={l:false,r:false,jump:false,act:false,on:false};let gpPrev=[];
+function pollPad(){
+ const pads=navigator.getGamepads?navigator.getGamepads():[];let pad=null;
+ for(const q of pads)if(q&&q.connected&&q.buttons&&q.buttons.length>=10){pad=q;break}
+ if(!pad){if(gp.on){gp.on=false;document.body.classList.remove('gp')}gp.l=gp.r=gp.jump=gp.act=false;gpPrev=[];return}
+ if(!gp.on){gp.on=true;document.body.classList.add('gp')}
+ const b=i=>!!(pad.buttons[i]&&pad.buttons[i].pressed),ax=pad.axes[0]||0;
+ const left=b(14)||ax<-.4,right=b(15)||ax>.4,A=b(0),X=b(2),B=b(1),Y=b(3),LB=b(4),RB=b(5),ST=b(9);
+ const now=[left,right,A,ST,Y||LB||RB,B,X];const hit=i=>now[i]&&!gpPrev[i];
+ if(hit(2)||hit(3)||hit(0)||hit(1)||hit(4))initAudio();
+ if(G.state==='title'){
+  if(hit(0)){G.sel=(G.sel+CH.length-1)%CH.length;sfx.swap()}
+  if(hit(1)){G.sel=(G.sel+1)%CH.length;sfx.swap()}
+  if(hit(2)||hit(3))startGame();
+  gp.l=gp.r=gp.jump=gp.act=false;
+ }else if(G.state==='gameover'||G.state==='win'){
+  if(hit(2)||hit(3))advance();
+  gp.l=gp.r=gp.jump=gp.act=false;
+ }else{
+  gp.l=left;gp.r=right;gp.jump=A||B;gp.act=X||Y;
+  if(hit(3))togglePause();
+  else if(G.state==='pause'&&hit(2))togglePause();
+  if(G.state==='play'&&(b(4)&&!gpPrev[7]||b(5)&&!gpPrev[8]))wantSwap=-1;
+ }
+ gpPrev=now;gpPrev[7]=b(4);gpPrev[8]=b(5);
+}
 const keys={},touch={l:false,r:false,jump:false,act:false};
-const inp={get l(){return keys.ArrowLeft||keys.KeyA||touch.l},get r(){return keys.ArrowRight||keys.KeyD||touch.r},
- get jump(){return keys.Space||keys.ArrowUp||keys.KeyW||keys.KeyZ||touch.jump},get act(){return keys.KeyX||keys.KeyJ||keys.ShiftLeft||keys.KeyK||touch.act}};
+const inp={get l(){return keys.ArrowLeft||keys.KeyA||touch.l||gp.l},get r(){return keys.ArrowRight||keys.KeyD||touch.r||gp.r},
+ get jump(){return keys.Space||keys.ArrowUp||keys.KeyW||keys.KeyZ||touch.jump||gp.jump},get act(){return keys.KeyX||keys.KeyJ||keys.ShiftLeft||keys.KeyK||touch.act||gp.act}};
 let prevJ=false,prevA=false,wantSwap=-2;
 addEventListener('keydown',e=>{
  initAudio();if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
@@ -247,6 +274,16 @@ cv.addEventListener('pointerdown',e=>{
  }else if(G.state==='gameover'||G.state==='win')advance();
  else if(G.state==='pause')togglePause();
 });
+const FSel=document.documentElement,fsOn=()=>document.fullscreenElement||document.webkitFullscreenElement,
+ fsCan=!!(FSel.requestFullscreen||FSel.webkitRequestFullscreen);
+function toggleFull(){
+ try{if(fsOn()){(document.exitFullscreen||document.webkitExitFullscreen).call(document)}
+ else{const r=(FSel.requestFullscreen||FSel.webkitRequestFullscreen).call(FSel,{navigationUI:'hide'});if(r&&r.catch)r.catch(()=>{})}}catch(e){}
+}
+if(fsCan)$('bFull').style.display='';
+$('bFull').addEventListener('click',()=>{initAudio();toggleFull()});
+['fullscreenchange','webkitfullscreenchange'].forEach(n=>document.addEventListener(n,()=>{clearInput();setTimeout(resize,100)}));
+addEventListener('keydown',e=>{if(e.code==='KeyF'&&!e.repeat&&!e.metaKey&&!e.ctrlKey&&G.state!=='title'||e.code==='KeyF'&&G.state==='title'&&!e.metaKey&&!e.ctrlKey)toggleFull()});
 function toggleMute(){muted=!muted;$('bMute').style.opacity=muted?.4:1}
 function togglePause(){clearInput();if(G.state==='play')G.state='pause';else if(G.state==='pause')G.state='play'}
 
@@ -326,7 +363,7 @@ function trySwap(to){
 }
 
 function update(dt){
- G.t+=dt;
+ G.t+=dt;pollPad();
  if(G.state==='title'||G.state==='pause'||G.state==='gameover'||G.state==='win'){prevJ=inp.jump;prevA=inp.act;wantSwap=-2;return}
  updFx(dt);
  if(G.state==='dead'){p.vy+=GRAV*dt;p.y+=p.vy*dt;G.deadT-=dt;
@@ -799,7 +836,7 @@ function renderTitle(){
    txt(c.desc[0],x+L_.cw/2,y+210,Math.min(10.5,L_.cw/14),'#c9cde0');txt(c.desc[1],x+L_.cw/2,y+223,Math.min(10.5,L_.cw/14),'#c9cde0')}
  }
  {const q=g.play,pul=1+Math.sin(G.t*5)*.03;ctx.save();ctx.translate(q.x+q.w/2,q.y+q.h/2);ctx.scale(pul,pul);rr(-q.w/2,-q.h/2,q.w,q.h,q.h/2,'#22263a');rr(-q.w/2+4,-q.h/2+4,q.w-8,q.h-8,q.h/2-4,'#3fbf6a');txt('PLAY  ▶',0,8,22,'#fff');ctx.restore()}
- if(!col&&!touchUI)txt('Move ← → / A D   ·   Jump Space   ·   Action X   ·   Swap C or 1–5   ·   Pause P',W/2,VH-22,10.5,'#e6e8f5','center','#22263a');
+ if(!col&&!touchUI)txt('Move ← → / A D   ·   Jump Space   ·   Action X   ·   Swap C or 1–5   ·   Pause P   ·   Full screen F',W/2,VH-22,10.5,'#e6e8f5','center','#22263a');
  if(G.best)txt('Best: '+G.best,W/2,VH-(col?6:8),10.5,'#ffd23f','center','#22263a');
 }
 function renderWin(){
