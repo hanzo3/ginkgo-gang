@@ -24,10 +24,19 @@ html,body{margin:0;height:100%;background:#14161f;overflow:hidden;overscroll-beh
 #bAct{width:70px;height:70px;background:rgba(230,80,70,.6);font-size:13px;margin-bottom:26px}
 #bJump{width:88px;height:88px;background:rgba(60,170,90,.6);font-size:15px}
 #btns button.dn,#dpad.dn{filter:brightness(1.5)}
+body[data-state=title] #pad,body[data-state=win] #pad,body[data-state=gameover] #pad{display:none}
+#sa{position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+body.portrait #pad{bottom:calc(18px + env(safe-area-inset-bottom))}
+body.portrait #dpad{width:min(164px,41vw);height:96px;border-radius:48px}
+body.portrait #btns{position:relative;gap:8px}
+body.portrait #bJump{width:min(92px,24vw);height:min(92px,24vw)}
+body.portrait #bAct{width:min(72px,19vw);height:min(72px,19vw);margin-bottom:24px}
+body.portrait #bSwap{position:absolute;right:2px;bottom:min(104px,28vw);width:54px;height:54px}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="sa"></div>
 <div id="top"><button id="bMute" aria-label="Mute">♪</button><button id="bPause" aria-label="Pause">❚❚</button></div>
 <div id="pad"><div id="dpad"><span>◀</span><span>▶</span></div>
 <div id="btns"><button id="bSwap">SWAP</button><button id="bAct">ACT</button><button id="bJump">JUMP</button></div></div>
@@ -225,9 +234,16 @@ document.addEventListener('contextmenu',e=>e.preventDefault());
 cv.addEventListener('pointerdown',e=>{
  initAudio();const r=cv.getBoundingClientRect(),tw=Math.round(VH*ASP),x=(e.clientX-r.left)/r.width*tw,y=(e.clientY-r.top)/r.height*VH;
  if(G.state==='title'){
-  const v=VW;VW=tw;const c=cardLayout();VW=v;
-  for(let i=0;i<CH.length;i++){const cx=c.x0+i*(c.cw+c.gap);if(x>=cx&&x<=cx+c.cw&&y>=c.y0&&y<=c.y0+c.ch){if(G.sel===i)startGame();else{G.sel=i;sfx.swap()}return}}
-  if(x>tw/2-120&&x<tw/2+120&&y>c.y0+c.ch+12&&y<c.y0+c.ch+66)startGame();
+  const g=titleGeo(tw),inR=q=>x>=q.x&&x<=q.x+q.w&&y>=q.y&&y<=q.y+q.h;
+  if(g.col){
+   for(let i=0;i<CH.length;i++){if(inR({x:8+i*(g.tw+g.gap),y:g.ty,w:g.tw,h:g.th})){if(G.sel!==i){G.sel=i;sfx.swap()}return}}
+   const c=g.card;if(inR(c)){if(x<c.x+60){G.sel=(G.sel+CH.length-1)%CH.length;sfx.swap()}else if(x>c.x+c.w-60){G.sel=(G.sel+1)%CH.length;sfx.swap()}return}
+   if(inR(g.play))startGame();
+  }else{
+   const c=g.c;
+   for(let i=0;i<CH.length;i++){const cx=c.x0+i*(c.cw+c.gap);if(x>=cx&&x<=cx+c.cw&&y>=c.y0&&y<=c.y0+c.ch){if(G.sel===i)startGame();else{G.sel=i;sfx.swap()}return}}
+   if(inR(g.play))startGame();
+  }
  }else if(G.state==='gameover'||G.state==='win')advance();
  else if(G.state==='pause')togglePause();
 });
@@ -563,6 +579,7 @@ function updBoss(dt,atk,pvy,prevBottom){
  b.vy=Math.min(b.vy+GRAV*dt,880);const wasAir=!b.on;moveEnt(b,dt);
  if(!E&&wasAir&&b.on){G.shake=.2;sfx.pound()}
  b.x=Math.max(b.ax0*T,Math.min(b.ax1*T-b.w,b.x));
+ if(VW<600)b.x=Math.max(cam+6,Math.min(cam+VW-b.w-6,b.x));
  if(b.shootT<=0){b.mouth=.35;const mx=b.x+b.w/2+b.face*b.w*.3;
   if(E){const n=rage>=2?2:1;for(let i=0;i<n;i++)shots.push({t:'c',x:mx-8,y:b.y+12-i*4,w:16,h:10,vx:b.face*(230+rage*30),vy:i?-330:-40,g:i?700:120,life:4,r:0});b.shootT=1.6-rage*.3;tone(500,.08,'square',.06,200)}
   else{const n=rage>=3?3:2;for(let i=0;i<n;i++){const tx=p.x+p.w/2+(i-(n-1)/2)*70,dx=tx-mx;shots.push({t:'g',x:mx-7,y:b.y+10,w:14,h:14,vx:Math.max(-340,Math.min(340,dx/.86)),vy:-430,g:1000,life:4})}b.shootT=1.7-rage*.2;tone(180,.2,'sawtooth',.07,-80)}}
@@ -700,7 +717,12 @@ function drawEnemy(e){
 function txt(s,x,y,size,col,align='center',stroke){ctx.font=`bold ${size}px "Trebuchet MS",Verdana,sans-serif`;ctx.textAlign=align;if(stroke){ctx.lineWidth=Math.max(3,size/5);ctx.strokeStyle=stroke;ctx.lineJoin='round';ctx.strokeText(s,x,y)}ctx.fillStyle=col;ctx.fillText(s,x,y)}
 
 /* ---------- render ---------- */
-function cardLayout(){const n=CH.length,gap=8,cw=Math.min(160,(VW-24-gap*(n-1))/n),ch=232;return{gap,cw,ch,x0:(VW-(cw*n+gap*(n-1)))/2,y0:112}}
+function cardLayout(W=VW){const n=CH.length,gap=8,cw=Math.min(160,(W-24-gap*(n-1))/n),ch=232;return{gap,cw,ch,x0:(W-(cw*n+gap*(n-1)))/2,y0:112}}
+function titleGeo(W){
+ if(W>=640){const c=cardLayout(W);return{col:false,c,play:{x:W/2-110,y:c.y0+c.ch+14,w:220,h:50}}}
+ const tw=Math.min(66,(W-16)/5);
+ return{col:true,tw,gap:(W-16-tw*5)/4,th:76,ty:110,card:{x:12,y:194,w:W-24,h:210},play:{x:W/2-92,y:408,w:184,h:44}}
+}
 function render(){
  if(G.state==='title'||G.state==='win'){const v=VW,k=cv.height/VH;VW=Math.round(VH*ASP);ctx.setTransform(k,0,0,k,0,0);G.state==='title'?renderTitle():renderWin();VW=v;return}
  ctx.setTransform(SC,0,0,SC,0,0);
@@ -746,49 +768,69 @@ function render(){
  if(p.star>0)txt('★ '+Math.ceil(p.star),VW/2,64,13,'#ffe066','center','#22263a');
  if(boss&&boss.active&&!boss.dying)txt((boss.kind==='ella'?'ELLA  ':'GINGER  ')+'♥'.repeat(boss.hp),VW/2,p.star>0?84:66,15,'#ff9ecb','center','#22263a');
  if(G.state==='pause'){ctx.fillStyle='rgba(10,12,25,.6)';ctx.fillRect(0,0,VW,VH);txt('PAUSED',VW/2,mid-10,44,'#fff','center','#22263a');txt('Tap or press P to continue',VW/2,mid+24,15,'#ddd')}
- if(G.state==='clear'){txt('LEVEL CLEAR!',VW/2,mid-40,46,'#ffd23f','center','#22263a');txt('Time bonus: '+G.bonus*10,VW/2,mid-4,18,'#fff','center','#22263a')}
- if(G.state==='gameover'){ctx.fillStyle='rgba(10,12,25,.72)';ctx.fillRect(0,0,VW,VH);txt('GAME OVER',VW/2,mid-10,50,'#ff6b6b','center','#22263a');txt('Tap or press Enter to try again',VW/2,mid+28,16,'#fff')}
+ if(G.state==='clear'){txt('LEVEL CLEAR!',VW/2,mid-40,Math.min(46,VW/8.5),'#ffd23f','center','#22263a');txt('Time bonus: '+G.bonus*10,VW/2,mid-4,18,'#fff','center','#22263a')}
+ if(G.state==='gameover'){ctx.fillStyle='rgba(10,12,25,.72)';ctx.fillRect(0,0,VW,VH);txt('GAME OVER',VW/2,mid-10,Math.min(50,VW/7),'#ff6b6b','center','#22263a');txt('Tap or press Enter to try again',VW/2,mid+28,16,'#fff')}
 }
 function renderTitle(){
+ const W=VW,g=titleGeo(W),col=g.col,touchUI=$('pad').classList.contains('on');
  drawBG(0,G.t*40,G.t);
- for(let tx=0;tx<VW/T+1;tx++){ctx.fillStyle='#a8553a';ctx.fillRect(tx*T,GY,T,VH-GY);ctx.fillStyle='#c9704e';ctx.fillRect(tx*T,GY,T,6)}
- ctx.fillStyle='rgba(15,18,40,.45)';ctx.fillRect(0,0,VW,VH);
- {const tb=(kind,x,face,w,h,ph)=>{const hop=Math.abs(Math.sin(G.t*3+ph))*10,cyc=(G.t+ph)%2.6;ctx.save();ctx.translate(x,GY-hop);ctx.scale(1.25,1.25);drawBoss({kind,x:-w/2,y:-h,w,h,face,inv:0,dying:0,mouth:cyc<.4?1:0},0);ctx.restore();
-   if(cyc<1.1){const k=cyc/1.1,sx=x+face*(30+k*150),sy=GY-h*.8-Math.sin(k*Math.PI)*(kind==='ella'?18:70);drawShot(kind==='ella'?{t:'c',x:sx-8,y:sy,r:G.t*8}:{t:'g',x:sx-7,y:sy},0)}};
-  tb('ginger',58,1,64,58,0);tb('ella',VW-48,-1,40,38,1.3)}
- txt('GINKGO STREET GANG',VW/2,58,Math.min(44,VW/15),'#ffd23f','center','#22263a');
- txt('Pick your hero · swap any time · eat pizza to grow BIG!',VW/2,88,14,'#fff','center','#22263a');
- const L_=cardLayout();
- for(let i=0;i<CH.length;i++){const c=CH[i],x=L_.x0+i*(L_.cw+L_.gap),sel=G.sel===i,y=L_.y0-(sel?6:0);
-  rr(x-3,y-3,L_.cw+6,L_.ch+6,16,sel?c.col:'rgba(255,255,255,.25)');rr(x,y,L_.cw,L_.ch,14,sel?'#2b3050':'#1c2036');
-  drawChar(i,x+L_.cw/2,y+152,1,{run:sel?G.t*9:0,act:sel&&c.id==='bo'&&G.t%2.4>1.8?(G.t%2.4-1.8)/.6:-1},1.95);
-  txt(c.name,x+L_.cw/2,y+176,18,'#fff');txt(c.trait,x+L_.cw/2,y+194,12,c.col);
-  txt(c.desc[0],x+L_.cw/2,y+210,Math.min(10.5,L_.cw/14),'#c9cde0');txt(c.desc[1],x+L_.cw/2,y+223,Math.min(10.5,L_.cw/14),'#c9cde0')}
- const by=L_.y0+L_.ch+14,pul=1+Math.sin(G.t*5)*.03;ctx.save();ctx.translate(VW/2,by+25);ctx.scale(pul,pul);rr(-110,-25,220,50,25,'#22263a');rr(-106,-21,212,42,21,'#3fbf6a');txt('PLAY  ▶',0,8,22,'#fff');ctx.restore();
- txt('Move ← → / A D   ·   Jump Space   ·   Action X   ·   Swap C or 1–5   ·   Pause P',VW/2,VH-22,10.5,'#e6e8f5','center','#22263a');
- if(G.best)txt('Best: '+G.best,VW/2,VH-8,10.5,'#ffd23f','center','#22263a');
+ for(let tx=0;tx<W/T+1;tx++){ctx.fillStyle='#a8553a';ctx.fillRect(tx*T,GY,T,VH-GY);ctx.fillStyle='#c9704e';ctx.fillRect(tx*T,GY,T,6)}
+ ctx.fillStyle='rgba(15,18,40,.45)';ctx.fillRect(0,0,W,VH);
+ {const tb=(kind,x,face,w,h,ph,sc,d)=>{const hop=Math.abs(Math.sin(G.t*3+ph))*10*sc/1.25,cyc=(G.t+ph)%2.6;ctx.save();ctx.translate(x,GY-hop);ctx.scale(sc,sc);drawBoss({kind,x:-w/2,y:-h,w,h,face,inv:0,dying:0,mouth:cyc<.4?1:0},0);ctx.restore();
+   if(cyc<1.1){const k=cyc/1.1,sx=x+face*(24+k*d),sy=GY-h*sc*.8-Math.sin(k*Math.PI)*(kind==='ella'?18:70)*sc/1.25;drawShot(kind==='ella'?{t:'c',x:sx-8,y:sy,r:G.t*8}:{t:'g',x:sx-7,y:sy},0)}};
+  if(col){tb('ginger',34,1,64,58,0,.8,80);tb('ella',W-28,-1,40,38,1.3,.9,80)}else{tb('ginger',58,1,64,58,0,1.25,150);tb('ella',W-48,-1,40,38,1.3,1.25,150)}}
+ if(col){txt('GINKGO',W/2,44,40,'#ffd23f','center','#22263a');txt('STREET GANG',W/2,84,40,'#ffd23f','center','#22263a');txt('Pick your hero · eat pizza to grow BIG!',W/2,103,12,'#fff','center','#22263a')}
+ else{txt('GINKGO STREET GANG',W/2,58,Math.min(44,W/15),'#ffd23f','center','#22263a');txt('Pick your hero · swap any time · eat pizza to grow BIG!',W/2,88,14,'#fff','center','#22263a')}
+ if(col){
+  for(let i=0;i<CH.length;i++){const c=CH[i],sel=G.sel===i,x=8+i*(g.tw+g.gap),y=g.ty;
+   rr(x-2,y-2,g.tw+4,g.th+4,12,sel?c.col:'rgba(255,255,255,.25)');rr(x,y,g.tw,g.th,10,sel?'#2b3050':'#1c2036');
+   drawChar(i,x+g.tw/2,y+g.th-6,1,{run:sel?G.t*9:0},.78)}
+  const c=CH[G.sel],q=g.card,cx=q.x+q.w/2;
+  rr(q.x-3,q.y-3,q.w+6,q.h+6,18,c.col);rr(q.x,q.y,q.w,q.h,16,'#2b3050');
+  drawChar(G.sel,cx,q.y+134,1,{run:G.t*9,act:c.id==='bo'&&G.t%2.4>1.8?(G.t%2.4-1.8)/.6:-1},1.7);
+  txt(c.name,cx,q.y+160,20,'#fff');txt(c.trait,cx,q.y+177,12,c.col);txt(c.desc[0],cx,q.y+192,11,'#c9cde0');txt(c.desc[1],cx,q.y+205,11,'#c9cde0');
+  txt('◀',q.x+22,q.y+q.h/2,28,'#fff','center','#22263a');txt('▶',q.x+q.w-22,q.y+q.h/2,28,'#fff','center','#22263a');
+ }else{
+  const L_=g.c;
+  for(let i=0;i<CH.length;i++){const c=CH[i],x=L_.x0+i*(L_.cw+L_.gap),sel=G.sel===i,y=L_.y0-(sel?6:0);
+   rr(x-3,y-3,L_.cw+6,L_.ch+6,16,sel?c.col:'rgba(255,255,255,.25)');rr(x,y,L_.cw,L_.ch,14,sel?'#2b3050':'#1c2036');
+   drawChar(i,x+L_.cw/2,y+152,1,{run:sel?G.t*9:0,act:sel&&c.id==='bo'&&G.t%2.4>1.8?(G.t%2.4-1.8)/.6:-1},1.95);
+   txt(c.name,x+L_.cw/2,y+176,18,'#fff');txt(c.trait,x+L_.cw/2,y+194,12,c.col);
+   txt(c.desc[0],x+L_.cw/2,y+210,Math.min(10.5,L_.cw/14),'#c9cde0');txt(c.desc[1],x+L_.cw/2,y+223,Math.min(10.5,L_.cw/14),'#c9cde0')}
+ }
+ {const q=g.play,pul=1+Math.sin(G.t*5)*.03;ctx.save();ctx.translate(q.x+q.w/2,q.y+q.h/2);ctx.scale(pul,pul);rr(-q.w/2,-q.h/2,q.w,q.h,q.h/2,'#22263a');rr(-q.w/2+4,-q.h/2+4,q.w-8,q.h-8,q.h/2-4,'#3fbf6a');txt('PLAY  ▶',0,8,22,'#fff');ctx.restore()}
+ if(!col&&!touchUI)txt('Move ← → / A D   ·   Jump Space   ·   Action X   ·   Swap C or 1–5   ·   Pause P',W/2,VH-22,10.5,'#e6e8f5','center','#22263a');
+ if(G.best)txt('Best: '+G.best,W/2,VH-(col?6:8),10.5,'#ffd23f','center','#22263a');
 }
 function renderWin(){
- G.clearT+=1/60;drawBG(0,300,G.t);
- for(let tx=0;tx<VW/T+1;tx++){ctx.fillStyle='#a8553a';ctx.fillRect(tx*T,GY,T,VH-GY);ctx.fillStyle='#c9704e';ctx.fillRect(tx*T,GY,T,6)}
- [0,1,2,3,4].forEach((ci,i)=>drawChar(ci,VW/2-180+i*90,GY-(Math.abs(Math.sin(G.t*4+i))*14),1,{air:false,run:0},2.3));
- ctx.strokeStyle='#fff';ctx.lineWidth=10;ctx.strokeRect(VW/2-240,GY-190,480,200);
- txt('FAMILY PHOTO!',VW/2,80,Math.min(48,VW/13),'#ffd23f','center','#22263a');txt('You cleared every street. Final score: '+G.score,VW/2,116,17,'#fff','center','#22263a');
- txt('Tap or press Enter to play again',VW/2,VH-24,14,'#fff','center','#22263a');
- if(G.clearT<.5){ctx.globalAlpha=1-G.clearT*2;ctx.fillStyle='#fff';ctx.fillRect(0,0,VW,VH);ctx.globalAlpha=1}
+ G.clearT+=1/60;const W=VW;drawBG(0,300,G.t);
+ for(let tx=0;tx<W/T+1;tx++){ctx.fillStyle='#a8553a';ctx.fillRect(tx*T,GY,T,VH-GY);ctx.fillStyle='#c9704e';ctx.fillRect(tx*T,GY,T,6)}
+ const sp=Math.min(90,(W-70)/4),sc=Math.min(2.3,sp/36);
+ [0,1,2,3,4].forEach((ci,i)=>drawChar(ci,W/2-sp*2+i*sp,GY-(Math.abs(Math.sin(G.t*4+i))*14),1,{air:false,run:0},sc));
+ const fw=Math.min(480,W-24);ctx.strokeStyle='#fff';ctx.lineWidth=10;ctx.strokeRect(W/2-fw/2,GY-190,fw,200);
+ txt('FAMILY PHOTO!',W/2,80,Math.min(48,W/9),'#ffd23f','center','#22263a');txt('You cleared every street. Final score: '+G.score,W/2,116,Math.min(17,W/21),'#fff','center','#22263a');
+ txt('Tap or press Enter to play again',W/2,VH-24,14,'#fff','center','#22263a');
+ if(G.clearT<.5){ctx.globalAlpha=1-G.clearT*2;ctx.fillStyle='#fff';ctx.fillRect(0,0,W,VH);ctx.globalAlpha=1}
 }
 
 /* ---------- boot ---------- */
 function resize(){
- const sw=innerWidth,sh=innerHeight,asp=Math.max(4/3,Math.min(2.3,sw/sh));ASP=asp;
- let cw=sw,ch=sw/asp;if(ch>sh){ch=sh;cw=sh*asp}
- VIEWH=ch<520?11*T:VH;VW=Math.round(VIEWH*asp);
- const dpr=Math.min(devicePixelRatio||1,2.5);cv.width=Math.round(cw*dpr);cv.height=Math.round(ch*dpr);cv.style.width=cw+'px';cv.style.height=ch+'px';SC=cv.height/VIEWH;
+ const sw=innerWidth,sh=innerHeight,cs=getComputedStyle($('sa')),st=parseFloat(cs.paddingTop)||0,sb=parseFloat(cs.paddingBottom)||0;
+ const portrait=sh>sw*1.1;document.body.classList.toggle('portrait',portrait);
+ let cw,ch;
+ if(portrait){
+  const sc=Math.min(sw/(11*T),1.6);VW=Math.round(sw/sc);VIEWH=Math.max(11*T,Math.min(VH,Math.floor((sh-st-sb-175)/sc)));cw=sw;ch=VIEWH*sc;ASP=VW/VIEWH;
+ }else{
+  const asp=Math.max(4/3,Math.min(2.3,sw/sh));ASP=asp;cw=sw;ch=sw/asp;if(ch>sh){ch=sh;cw=sh*asp}
+  VIEWH=ch<520?11*T:VH;VW=Math.round(VIEWH*asp);
+ }
+ cv.style.marginTop=(portrait?st:0)+'px';
+ const dpr=Math.min(devicePixelRatio||1,2);cv.width=Math.round(cw*dpr);cv.height=Math.round(ch*dpr);cv.style.width=cw+'px';cv.style.height=ch+'px';SC=cv.height/VIEWH;
 }
-addEventListener('resize',resize);addEventListener('orientationchange',()=>setTimeout(resize,200));resize();
+addEventListener('resize',resize);if(window.visualViewport)visualViewport.addEventListener('resize',resize);addEventListener('orientationchange',()=>setTimeout(resize,200));resize();
 document.addEventListener('visibilitychange',()=>{clearInput();if(document.hidden&&G.state==='play')G.state='pause'});
 let last=0,acc=0;
-function frame(ts){const d=Math.min(.05,(ts-last)/1000);last=ts;acc+=d;let n=0;while(acc>=1/60&&n++<4){update(1/60);acc-=1/60}render();requestAnimationFrame(frame)}
+function frame(ts){if(document.body.dataset.state!==G.state)document.body.dataset.state=G.state;const d=Math.min(.05,(ts-last)/1000);last=ts;acc+=d;let n=0;while(acc>=1/60&&n++<4){update(1/60);acc-=1/60}render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
 window.__G={G,CH,get p(){return p},get L(){return L},get ents(){return ents},get boss(){return boss},get shots(){return shots},update,render,startGame,loadLevel};
 </script>
